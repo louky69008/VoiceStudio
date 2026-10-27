@@ -1,7 +1,6 @@
 import {
   existsSync,
   chmodSync,
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -257,27 +256,53 @@ describe('macOS development bundle cache pruning', () => {
 });
 
 describe.skipIf(process.platform !== 'darwin')('macOS cache cleanup safety', () => {
-  it('preserves a bundle used by an already-running Electron instance', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'vs-dev-active-'));
-    const executable = join(root, 'active', 'VoiceStudio.app', 'Contents', 'MacOS', 'Electron');
-    mkdirSync(join(executable, '..'), { recursive: true });
-    mkdirSync(join(root, 'current'));
-    linkSync(process.execPath, executable);
-    const child = spawnChild(executable, [
-      '-e',
-      'process.stdout.write("ready");setInterval(()=>{},1000)',
-    ]);
-    try {
-      await once(child.stdout!, 'data');
-      pruneOldBundles(root, join(root, 'current'));
-      expect(existsSync(executable)).toBe(true);
-    } finally {
+  it(
+    'preserves a bundle used by an already-running Electron instance',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'vs-dev-active-'));
+      const executable = join(root, 'active', 'VoiceStudio.app', 'Contents', 'MacOS', 'Electron');
+      mkdirSync(join(executable, '..'), { recursive: true });
+      mkdirSync(join(root, 'current'));
+      mkdirSync(join(root, 'stale'));
+      // Keep Node at its installed path (Homebrew builds need adjacent dylibs).
+      // Pruning inspects ps command lines, so argv0 represents the bundle path
+      // without relocating or re-signing an executable just for this fixture.
+      writeFileSync(executable, 'fixture');
+      const child = spawnChild(
+        process.execPath,
+        ['-e', 'process.stdout.write("ready");setInterval(()=>{},1000)'],
+        { argv0: executable },
+      );
       const exited = once(child, 'exit');
-      child.kill();
-      await exited;
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+      let stderr = '';
+      child.stderr!.on('data', (chunk) => (stderr += String(chunk)));
+      try {
+        const ready = Promise.race([
+          once(child.stdout!, 'data'),
+          exited.then(([code, signal]) => {
+            throw new Error(
+              `Fixture exited before ready: code=${code}, signal=${signal}, ${stderr}`,
+            );
+          }),
+        ]);
+        await ready;
+        pruneOldBundles(root, join(root, 'current'));
+        expect(existsSync(executable)).toBe(true);
+        // A running unleased bundle conservatively defers the entire prune.
+        expect(existsSync(join(root, 'stale'))).toBe(true);
+        child.kill();
+        await exited;
+        pruneOldBundles(root, join(root, 'current'));
+        expect(existsSync(executable)).toBe(false);
+        expect(existsSync(join(root, 'stale'))).toBe(false);
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+        await exited;
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    process.env.CI ? 30_000 : 15_000,
+  );
 
   it('does not block a usable cache when stale directories cannot be removed', () => {
     const root = mkdtempSync(join(tmpdir(), 'vs-dev-readonly-'));

@@ -35,6 +35,22 @@ it('does not notify deletion or lose data when storage rejects the write', () =>
   expect(refresh).not.toHaveBeenCalled();
   stop();
 });
+
+it('does not write or notify when the requested transcription is missing', () => {
+  const history = JSON.stringify([{ id: 2, text: 'keep' }]);
+  localStorage.setItem(TRANSCRIPTIONS_KEY, history);
+  const refresh = vi.fn();
+  const stop = subscribeTranscriptions(refresh);
+  const setItem = vi.spyOn(Storage.prototype, 'setItem');
+
+  removeTranscription(1);
+
+  expect(localStorage.getItem(TRANSCRIPTIONS_KEY)).toBe(history);
+  expect(setItem).not.toHaveBeenCalled();
+  expect(refresh).not.toHaveBeenCalled();
+  stop();
+});
+
 it('refuses to overwrite malformed history', () => {
   localStorage.setItem(TRANSCRIPTIONS_KEY, '{');
   expect(() => removeTranscription(1)).toThrow();

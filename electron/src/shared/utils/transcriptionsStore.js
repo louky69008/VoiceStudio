@@ -7,6 +7,20 @@
 export const TRANSCRIPTIONS_KEY = 'omni_transcriptions';
 export const TRANSCRIPTION_EVENT = 'omni:transcription-added';
 
+/** Mutations must not mistake unreadable or corrupt history for an empty list. */
+function readTranscriptions() {
+  const raw = localStorage.getItem(TRANSCRIPTIONS_KEY);
+  if (raw === null) return [];
+  let entries;
+  try {
+    entries = JSON.parse(raw);
+  } catch {
+    throw new Error('Invalid transcription history');
+  }
+  if (!Array.isArray(entries)) throw new Error('Invalid transcription history');
+  return entries;
+}
+
 /**
  * Read the transcription history. Never throws; always returns an array
  * (newest-first, as written). [] on absent/empty/malformed/non-array/blocked.
@@ -14,8 +28,7 @@ export const TRANSCRIPTION_EVENT = 'omni:transcription-added';
  */
 export function loadTranscriptions() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(TRANSCRIPTIONS_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
+    return readTranscriptions();
   } catch {
     return [];
   }
@@ -38,7 +51,7 @@ function nextTranscriptionId(entries) {
 
 /** Append a completed transcript using the existing 200-entry storage contract. */
 export function addTranscription(entry) {
-  const existing = loadTranscriptions();
+  const existing = readTranscriptions();
   const newEntry = {
     id: nextTranscriptionId(existing),
     text: entry.text || '',
@@ -77,10 +90,12 @@ export function subscribeTranscriptions(listener) {
  * histories that already hold repeated ids never lose unrelated transcripts.
  */
 export function removeTranscription(id) {
-  const entries = JSON.parse(localStorage.getItem(TRANSCRIPTIONS_KEY) || '[]');
-  if (!Array.isArray(entries)) throw new Error('Invalid transcription history');
+  const entries = readTranscriptions();
   const index = entries.findIndex((entry) => entry?.id === id);
-  if (index >= 0) entries.splice(index, 1);
-  localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(entries));
+  if (index < 0) return;
+
+  const next = entries.slice();
+  next.splice(index, 1);
+  localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(next));
   window.dispatchEvent(new CustomEvent(TRANSCRIPTION_EVENT));
 }

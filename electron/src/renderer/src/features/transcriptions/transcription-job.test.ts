@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { loadTranscriptions } from '@shared/utils/transcriptionsStore';
+import { loadTranscriptions, TRANSCRIPTIONS_KEY } from '@shared/utils/transcriptionsStore';
 
 const apiJson = vi.fn();
 const toast = { success: vi.fn(), error: vi.fn(), warning: vi.fn() };
@@ -69,6 +69,24 @@ it('reports a failure while away and keeps it for the page', async () => {
   respond(() => Promise.reject(new Error('boom')));
   expect(await job.startTranscription(audio, 'fast')).toBe('failed');
   expect(job.transcriptionJob.state.error?.detail).toBe('boom');
+  expect(toast.error).toHaveBeenCalledOnce();
+});
+
+it('reports a persistence failure without overwriting corrupt history or announcing success', async () => {
+  localStorage.setItem(TRANSCRIPTIONS_KEY, '{');
+  respond(() => Promise.resolve({ text: 'New transcript' }));
+  const savedId = job.transcriptionJob.state.savedId;
+
+  expect(await job.startTranscription(audio, 'fast')).toBe('failed');
+
+  expect(localStorage.getItem(TRANSCRIPTIONS_KEY)).toBe('{');
+  expect(job.transcriptionJob.state).toMatchObject({
+    running: false,
+    file: audio,
+    savedId,
+    error: { detail: 'Invalid transcription history' },
+  });
+  expect(toast.success).not.toHaveBeenCalled();
   expect(toast.error).toHaveBeenCalledOnce();
 });
 

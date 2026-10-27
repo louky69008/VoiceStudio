@@ -5,6 +5,7 @@ import { Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { apiJson, describeError } from '@/lib/api/client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { SettingsActionError } from './settings-action-error';
@@ -65,7 +66,17 @@ export function TranslationSettings() {
     setInstalling(id);
     setInstallFailed(null);
     try {
-      await apiJson(`/engines/translation/${encodeURIComponent(id)}/install`, { method: 'POST' });
+      const result = await apiJson<{ status: string; restart_required?: boolean }>(
+        `/engines/translation/${encodeURIComponent(id)}/install`,
+        { method: 'POST' },
+      );
+      if (result.restart_required || result.status === 'installed_but_probe_failed') {
+        toast.warning(
+          t('dub.install_restart', {
+            engine: query.data?.engines.find((engine) => engine.id === id)?.display_name ?? id,
+          }),
+        );
+      }
       await Promise.all(
         ['translation-engines', 'performance-profile'].map((key) =>
           client.invalidateQueries({ queryKey: [key] }),

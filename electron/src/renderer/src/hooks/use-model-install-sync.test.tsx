@@ -45,3 +45,39 @@ it('invalidates every readiness surface when an observed install completes', asy
     expect(client.getQueryState(['engines'])?.isInvalidated).toBe(true);
   });
 });
+
+it.each(['done', 'failed', 'cancelled', 'install_cancelled', 'removed'])(
+  'refreshes fast and accurate transcription readiness when a download becomes %s',
+  async (state) => {
+    mock.api.mockImplementation(() => Promise.resolve(mock.jobs));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const keys = [
+      ['transcription-readiness'],
+      ['transcription-readiness', 'accurate'],
+      ['dictation-setup-models'],
+      ['model-catalogue'],
+    ];
+    client.setQueryData(['model-install-jobs'], mock.jobs);
+    for (const key of keys) client.setQueryData(key, { ready: false });
+    try {
+      render(
+        <QueryClientProvider client={client}>
+          <ModelInstallSync />
+        </QueryClientProvider>,
+      );
+      await act(async () => {});
+      for (const key of keys) expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+
+      mock.jobs =
+        state === 'removed' ? { jobs: [] } : { jobs: [{ repo_id: 'k2-fsa/OmniVoice', state }] };
+      act(() => client.setQueryData(['model-install-jobs'], mock.jobs));
+
+      await waitFor(() => {
+        for (const key of keys) expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+      });
+    } finally {
+      cleanup();
+      client.clear();
+    }
+  },
+);

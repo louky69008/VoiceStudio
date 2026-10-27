@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TRANSCRIPTIONS_KEY } from '@shared/utils/transcriptionsStore';
 import '@/i18n';
 
 const mocks = vi.hoisted(() => ({
@@ -151,6 +152,42 @@ it('clears hidden selections when searching and selects only visible rows', asyn
   fireEvent.click(screen.getByRole('button', { name: 'Delete selected (1)' }));
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(deletions().map(([path]) => path)).toEqual(['/export/history/same']);
+});
+
+it('keeps a transcript selected after a storage failure and retries only the failed deletion', async () => {
+  const history = JSON.stringify([
+    { id: 1, text: 'Saved transcript', language: 'en', timestamp: '2026-10-26T10:00:00Z' },
+  ]);
+  localStorage.setItem(TRANSCRIPTIONS_KEY, history);
+  await mount();
+  const transcript = screen.getByRole('checkbox', { name: 'Select Saved transcript' });
+  const exported = screen.getByRole('checkbox', { name: 'Select Exported audio' });
+  fireEvent.click(transcript);
+  fireEvent.click(exported);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete selected (2)' }));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('Storage unavailable');
+  });
+
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Saved transcript: Storage unavailable',
+  );
+  expect(localStorage.getItem(TRANSCRIPTIONS_KEY)).toBe(history);
+  expect(transcript).toBeChecked();
+  await waitFor(() => expect(exported).not.toBeInTheDocument());
+  expect(within(screen.getByRole('dialog')).queryByText('Exported audio')).toBeNull();
+  const retry = within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry' });
+  await waitFor(() => expect(retry).not.toBeDisabled());
+  write.mockRestore();
+
+  fireEvent.click(retry);
+
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.queryByRole('checkbox', { name: 'Select Saved transcript' })).toBeNull();
+  expect(localStorage.getItem(TRANSCRIPTIONS_KEY)).toBe('[]');
   expect(deletions().map(([path]) => path)).toEqual(['/export/history/same']);
 });
 

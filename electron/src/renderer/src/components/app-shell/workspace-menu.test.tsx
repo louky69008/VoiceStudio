@@ -4,8 +4,16 @@ import { expect, it, vi } from 'vitest';
 const route = vi.hoisted(() => ({ pathname: '/gallery' }));
 vi.mock('@tanstack/react-router', () => ({
   useRouterState: ({ select }: any) => select({ location: route }),
-  Link: ({ to, activeProps: _activeProps, children, ...props }: any) => (
-    <a href={to} {...props}>
+  Link: ({ to, activeProps: _activeProps, children, onClick, ...props }: any) => (
+    <a
+      href={to}
+      {...props}
+      onClick={(event) => {
+        onClick?.(event);
+        // TanStack handles navigation without loading another document.
+        event.preventDefault();
+      }}
+    >
       {children}
     </a>
   ),
@@ -59,7 +67,7 @@ it('keeps the compact flyout mounted until navigation changes the route', async 
   const { rerender } = render(<WorkspaceNavigation compact />);
   fireEvent.click(screen.getByRole('button', { name: 'nav.voice' }));
   const clone = await screen.findByRole('link', { name: 'nav.clone_short' });
-  fireEvent.click(clone);
+  expect(fireEvent.click(clone)).toBe(false);
   expect(clone).toBeInTheDocument();
   route.pathname = '/clone';
   rerender(<WorkspaceNavigation compact />);
@@ -70,6 +78,6 @@ it('closes the compact flyout when choosing the current route again', async () =
   route.pathname = '/gallery';
   render(<WorkspaceNavigation compact />);
   fireEvent.click(screen.getByRole('button', { name: 'nav.voice' }));
-  fireEvent.click(await screen.findByRole('link', { name: 'nav.gallery' }));
+  expect(fireEvent.click(await screen.findByRole('link', { name: 'nav.gallery' }))).toBe(false);
   await waitFor(() => expect(screen.queryByRole('link', { name: 'nav.gallery' })).toBeNull());
 });

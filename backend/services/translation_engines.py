@@ -501,6 +501,9 @@ async def run_pip(args: list[str], timeout: float = 600.0) -> tuple[int, str]:
     """
     base = _installer_cmd()
     using_uv = base[:1] == ["uv"]
+    if using_uv and args and args[0] == "uninstall":
+        # uv never prompts and does not accept pip's confirmation flags.
+        args = [arg for arg in args if arg not in ("-y", "--yes")]
     # Pin `uv pip` to the interpreter the backend ACTUALLY runs under. The desktop
     # spawns `<venv>/bin/python -m uvicorn` WITHOUT exporting VIRTUAL_ENV, so bare
     # `uv pip install` finds no venv and 500s with "No virtual environment found"
@@ -533,6 +536,7 @@ async def run_pip(args: list[str], timeout: float = 600.0) -> tuple[int, str]:
             proc.kill()
         except ProcessLookupError:
             pass
+        await proc.communicate()
         return 1, f"pip timed out after {timeout:.0f}s"
     out = stdout.decode(errors="replace") if stdout else ""
     return proc.returncode or 0, out
@@ -543,11 +547,14 @@ async def _run_pip_thread(cmd: list[str], timeout: float) -> tuple[int, str]:
     loop = asyncio.get_running_loop()
 
     def _run():
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except FileNotFoundError as e:
+            return 1, f"installer not found: {e}"
         try:
             stdout, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:

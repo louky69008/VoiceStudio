@@ -69,6 +69,8 @@ export function useModelInstallCompletionRefresh(jobs: ModelInstallJobsResponse 
         'setup-status',
         'settings-dictation',
         'sidebar-dictation',
+        'transcription-readiness',
+        'dictation-setup-models',
         'diarisation-status',
         'sidebar-diarisation',
         'performance-profile',

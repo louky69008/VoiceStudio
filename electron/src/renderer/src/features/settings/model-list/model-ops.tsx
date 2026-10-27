@@ -58,6 +58,8 @@ export const MODEL_STATE_QUERY_KEYS = [
   'translation-engines',
   'settings-dictation',
   'sidebar-dictation',
+  'transcription-readiness',
+  'dictation-setup-models',
   'diarisation-status',
   'sidebar-diarisation',
   'performance-profile',
@@ -103,6 +105,9 @@ export function useModelOps({
     } catch (error) {
       setFailed(true);
       toast.error(describeError(error));
+      // A mutation may have reached the backend before its response was lost,
+      // or a reinstall may have removed the model before its download failed.
+      await refresh().catch(() => undefined);
       return false;
     } finally {
       setPending(null);

@@ -22,6 +22,60 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+it.each([
+  { status: 'installed_but_probe_failed', restart_required: true, warn: true },
+  { status: 'installed_but_probe_failed', restart_required: false, warn: true },
+  { status: 'installed', restart_required: true, warn: true },
+  { status: 'installed', restart_required: false, warn: false },
+  { status: 'already_installed', restart_required: false, warn: false },
+])('surfaces the backend restart requirement after install: %j', async (result) => {
+  mock.api.mockImplementation((path: string, init?: RequestInit) => {
+    if (path === '/engines/translation/argos/install' && init?.method === 'POST')
+      return Promise.resolve(result);
+    if (path === '/engines/translation') {
+      return Promise.resolve({
+        active: 'mymemory',
+        sandboxed: false,
+        engines: [
+          {
+            id: 'argos',
+            display_name: 'Argos',
+            category: 'offline',
+            installed: false,
+            ready: false,
+            needs_key: false,
+            pip_package: 'argostranslate',
+          },
+        ],
+      });
+    }
+    return Promise.resolve({});
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  try {
+    render(
+      <QueryClientProvider client={client}>
+        <TranslationSettings />
+      </QueryClientProvider>,
+    );
+    const install = await screen.findByRole('button', { name: 'modelMaintenance.install' });
+    expect(mock.api.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    fireEvent.click(install);
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['performance-profile'] }),
+    );
+    await waitFor(() => expect(install).not.toBeDisabled());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['translation-engines'] });
+    if (result.warn) expect(mock.toast.warning).toHaveBeenCalledWith('dub.install_restart');
+    else expect(mock.toast.warning).not.toHaveBeenCalled();
+    expect(mock.toast.success).not.toHaveBeenCalled();
+  } finally {
+    cleanup();
+    client.clear();
+  }
+});
+
 it('refreshes performance selections immediately after changing translation engine', async () => {
   mock.api.mockImplementation((path: string, init?: RequestInit) => {
     if (path === '/engines/translation/select' && init?.method === 'POST')

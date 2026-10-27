@@ -36,6 +36,15 @@ it('never posts a JSON key whose stored text cannot be parsed', () => {
   expect(post).not.toHaveBeenCalled();
 });
 
+it('does not sync session storage or alter a local preference with the same key', () => {
+  localStorage.setItem('voicestudio.locale', 'en');
+  const { post } = install();
+  sessionStorage.setItem('voicestudio.locale', 'fr');
+  sessionStorage.removeItem('voicestudio.locale');
+  expect(localStorage.getItem('voicestudio.locale')).toBe('en');
+  expect(post).not.toHaveBeenCalled();
+});
+
 it('ignores keys that never sync and still stores them', () => {
   const { post } = install();
   localStorage.setItem('voicestudio.workspace-layout', 'x');
